@@ -125,7 +125,24 @@ fi
 # Install via pip
 print_info "Installing packages via pip..."
 $PIP_CMD install --upgrade pip setuptools wheel
-$PIP_CMD install svgwrite svgpathtools cssutils numba torch-tools visdom scikit-image
+
+# Install core dependencies first
+print_info "Installing core dependencies..."
+$PIP_CMD install svgwrite svgpathtools cssutils numba torch-tools scikit-image
+
+# Install visdom separately with better error handling (optional dependency)
+# visdom has build issues with newer Python/setuptools versions
+print_info "Installing visdom (optional, for visualization)..."
+# Try with --no-build-isolation first (uses current environment's setuptools)
+if $PIP_CMD install --no-build-isolation visdom; then
+    print_info "visdom installed successfully"
+else
+    print_warn "visdom installation failed (this is optional - only needed for some visualization scripts)"
+    print_warn "The painterly rendering scripts do NOT require visdom - they will work without it."
+    print_warn "If you need visdom later, you can try:"
+    print_warn "  pip install --no-build-isolation visdom"
+    print_warn "  or: pip install 'setuptools<70' && pip install visdom"
+fi
 
 # Install cmake if not available
 if ! command -v cmake &> /dev/null; then
@@ -138,14 +155,28 @@ echo ""
 # Step 4: Verify dependencies
 print_info "Verifying dependencies..."
 MISSING_DEPS=()
+OPTIONAL_DEPS=("visdom")  # visdom is optional
 for dep in numpy skimage svgwrite svgpathtools cssutils numba ttools visdom; do
     if ! python3 -c "import $dep" 2>/dev/null; then
-        MISSING_DEPS+=("$dep")
+        # Check if it's optional
+        is_optional=false
+        for opt_dep in "${OPTIONAL_DEPS[@]}"; do
+            if [ "$dep" = "$opt_dep" ]; then
+                is_optional=true
+                break
+            fi
+        done
+        
+        if [ "$is_optional" = true ]; then
+            print_warn "Optional dependency '$dep' not found (this is OK if you don't need visualization)"
+        else
+            MISSING_DEPS+=("$dep")
+        fi
     fi
 done
 
 if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
-    print_warn "Missing dependencies: ${MISSING_DEPS[*]}"
+    print_warn "Missing required dependencies: ${MISSING_DEPS[*]}"
     print_info "Attempting to install missing dependencies..."
     for dep in "${MISSING_DEPS[@]}"; do
         case $dep in
