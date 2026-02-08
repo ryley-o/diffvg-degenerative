@@ -192,37 +192,50 @@ echo ""
 
 # Step 4: Verify dependencies
 print_info "Verifying dependencies..."
-MISSING_DEPS=()
-OPTIONAL_DEPS=("visdom")  # visdom is optional
-for dep in numpy skimage svgwrite svgpathtools cssutils numba ttools visdom; do
-    if ! python3 -c "import $dep" 2>/dev/null; then
-        # Check if it's optional
-        is_optional=false
-        for opt_dep in "${OPTIONAL_DEPS[@]}"; do
-            if [ "$dep" = "$opt_dep" ]; then
-                is_optional=true
-                break
-            fi
-        done
-        
-        if [ "$is_optional" = true ]; then
-            print_warn "Optional dependency '$dep' not found (this is OK if you don't need visualization)"
-        else
-            MISSING_DEPS+=("$dep")
-        fi
+
+# Check core dependencies (skip ttools/visdom since we handled them separately)
+CORE_DEPS=("numpy" "skimage" "svgwrite" "svgpathtools" "cssutils" "numba")
+MISSING_CORE=()
+
+for dep in "${CORE_DEPS[@]}"; do
+    # Handle skimage -> scikit-image import name
+    import_name="$dep"
+    if [ "$dep" = "skimage" ]; then
+        import_name="skimage"
+    fi
+    
+    if python3 -c "import $import_name" 2>/dev/null; then
+        print_info "✓ $dep available"
+    else
+        MISSING_CORE+=("$dep")
     fi
 done
 
-if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
-    print_warn "Missing required dependencies: ${MISSING_DEPS[*]}"
-    print_info "Attempting to install missing dependencies..."
-    for dep in "${MISSING_DEPS[@]}"; do
+# Check ttools (from torch-tools package) - don't try to install if already handled
+if python3 -c "import ttools" 2>/dev/null; then
+    print_info "✓ ttools module available"
+elif $PIP_CMD show torch-tools >/dev/null 2>&1; then
+    print_warn "torch-tools package installed but ttools import failed"
+    print_warn "This may still work at runtime - continuing..."
+else
+    print_warn "torch-tools not found - but we should have installed it above"
+fi
+
+# Check visdom (optional)
+if python3 -c "import visdom" 2>/dev/null; then
+    print_info "✓ visdom available (optional)"
+else
+    print_warn "visdom not available (optional - only needed for some visualization scripts)"
+fi
+
+# Install any missing core dependencies
+if [ ${#MISSING_CORE[@]} -gt 0 ]; then
+    print_warn "Missing core dependencies: ${MISSING_CORE[*]}"
+    print_info "Installing missing dependencies..."
+    for dep in "${MISSING_CORE[@]}"; do
         case $dep in
             skimage)
                 $PIP_CMD install scikit-image
-                ;;
-            ttools)
-                $PIP_CMD install torch-tools
                 ;;
             *)
                 $PIP_CMD install "$dep"
