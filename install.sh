@@ -126,22 +126,60 @@ fi
 print_info "Installing packages via pip..."
 $PIP_CMD install --upgrade pip setuptools wheel
 
-# Install core dependencies first
+# Install core dependencies first (without torch-tools to avoid visdom dependency issue)
 print_info "Installing core dependencies..."
-$PIP_CMD install svgwrite svgpathtools cssutils numba torch-tools scikit-image
+$PIP_CMD install svgwrite svgpathtools cssutils numba scikit-image
 
-# Install visdom separately with better error handling (optional dependency)
+# Try to install visdom first (torch-tools depends on it)
 # visdom has build issues with newer Python/setuptools versions
-print_info "Installing visdom (optional, for visualization)..."
-# Try with --no-build-isolation first (uses current environment's setuptools)
-if $PIP_CMD install --no-build-isolation visdom; then
-    print_info "visdom installed successfully"
+print_info "Attempting to install visdom (torch-tools dependency)..."
+VISDOM_INSTALLED=false
+
+# Ensure setuptools is properly installed and pkg_resources is available
+$PIP_CMD install --upgrade 'setuptools>=40.0' 2>/dev/null || true
+
+# Method 1: Try with --no-build-isolation (uses current environment)
+if $PIP_CMD install --no-build-isolation visdom 2>/dev/null; then
+    print_info "✓ visdom installed successfully"
+    VISDOM_INSTALLED=true
 else
-    print_warn "visdom installation failed (this is optional - only needed for some visualization scripts)"
-    print_warn "The painterly rendering scripts do NOT require visdom - they will work without it."
-    print_warn "If you need visdom later, you can try:"
-    print_warn "  pip install --no-build-isolation visdom"
-    print_warn "  or: pip install 'setuptools<70' && pip install visdom"
+    # Method 2: Try installing older setuptools temporarily
+    print_info "Trying alternative visdom installation method..."
+    OLD_SETUPTOOLS=$($PIP_CMD show setuptools 2>/dev/null | grep "^Version:" | awk '{print $2}' || echo "82.0.0")
+    if $PIP_CMD install 'setuptools<70' 2>/dev/null && \
+       $PIP_CMD install visdom 2>/dev/null; then
+        # Restore setuptools
+        $PIP_CMD install --upgrade "setuptools" 2>/dev/null || true
+        print_info "✓ visdom installed successfully (with setuptools workaround)"
+        VISDOM_INSTALLED=true
+    else
+        # Restore setuptools if we downgraded it
+        $PIP_CMD install --upgrade setuptools 2>/dev/null || true
+        print_warn "✗ visdom installation failed - will install torch-tools without it"
+        print_warn "  Core functionality will work, but some visualization features may be unavailable"
+        print_warn "  The painterly rendering scripts will work fine without visdom"
+    fi
+fi
+
+# Install torch-tools (needed for LPIPS perceptual loss)
+print_info "Installing torch-tools..."
+if [ "$VISDOM_INSTALLED" = true ]; then
+    # visdom is installed, can install torch-tools normally
+    if $PIP_CMD install torch-tools; then
+        print_info "✓ torch-tools installed successfully"
+    else
+        print_warn "torch-tools installation had issues, but continuing..."
+    fi
+else
+    # Install torch-tools without dependencies, then install what we need manually
+    print_warn "Installing torch-tools without visdom dependency..."
+    if $PIP_CMD install --no-deps torch-tools; then
+        # Install torch-tools dependencies manually (except visdom)
+        $PIP_CMD install coloredlogs tqdm 2>/dev/null || true
+        print_info "✓ torch-tools installed (without visdom)"
+    else
+        print_warn "torch-tools installation failed, but continuing..."
+    fi
 fi
 
 # Install cmake if not available
