@@ -110,6 +110,54 @@ else
     print_error "Failed to initialize git submodules."
     exit 1
 fi
+
+# Update pybind11 to a version compatible with Python 3.12
+# Python 3.12 requires pybind11 >= 2.11.1 (current submodule is 2.6.0)
+print_info "Checking Python version for pybind11 compatibility..."
+PYTHON_VERSION_MAJOR=$(python3 -c "import sys; print(sys.version_info.major)" 2>/dev/null || echo "3")
+PYTHON_VERSION_MINOR=$(python3 -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo "0")
+
+if [ "$PYTHON_VERSION_MAJOR" -eq 3 ] && [ "$PYTHON_VERSION_MINOR" -ge 12 ]; then
+    print_info "Python 3.12+ detected - updating pybind11 submodule for compatibility"
+    print_info "Current pybind11 version is too old (2.6.0) - needs 2.11.1+ for Python 3.12"
+    
+    cd pybind11
+    CURRENT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
+    
+    # Fetch latest tags from remote
+    print_info "Fetching pybind11 tags..."
+    git fetch origin --tags 2>/dev/null || git fetch --tags 2>/dev/null || true
+    
+    # Try to checkout a Python 3.12 compatible version (in order of preference)
+    PYBIND11_UPDATED=false
+    for version in "v2.13.0" "v2.12.0" "v2.11.1" "v2.11.0"; do
+        if git checkout "$version" 2>/dev/null; then
+            print_info "✓ pybind11 updated to $version (Python 3.12 compatible)"
+            PYBIND11_UPDATED=true
+            break
+        fi
+    done
+    
+    # If tags don't work, try updating to latest master
+    if [ "$PYBIND11_UPDATED" = false ]; then
+        print_info "Trying to update to latest master branch..."
+        git fetch origin master 2>/dev/null || true
+        if git checkout origin/master 2>/dev/null || git checkout master 2>/dev/null; then
+            print_info "✓ pybind11 updated to latest master"
+            PYBIND11_UPDATED=true
+        fi
+    fi
+    
+    if [ "$PYBIND11_UPDATED" = false ]; then
+        print_warn "⚠ Could not update pybind11 - build may fail with Python 3.12"
+        print_warn "  You may need to manually update the pybind11 submodule"
+        print_warn "  Try: cd pybind11 && git fetch && git checkout v2.13.0"
+    fi
+    
+    cd ..
+else
+    print_info "Python version $PYTHON_VERSION_MAJOR.$PYTHON_VERSION_MINOR is compatible with current pybind11"
+fi
 echo ""
 
 # Step 3: Install Python dependencies
