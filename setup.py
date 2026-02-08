@@ -42,6 +42,10 @@ class Build(build_ext):
             cfg = 'Debug' if self.debug else 'Release'
             build_args = ['--config', cfg]
 
+            # Workaround for CMake 4.x compatibility with older pybind11
+            # CMake 4.x removed support for versions < 3.5, but pybind11 requires 3.4
+            cmake_args += ['-DCMAKE_POLICY_VERSION_MINIMUM=3.5']
+
             if platform.system() == "Windows":
                 cmake_args += ['-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_{}={}'.format(cfg.upper(), extdir),
                                '-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_{}={}'.format(cfg.upper(), extdir)]
